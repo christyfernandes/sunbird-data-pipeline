@@ -19,6 +19,11 @@ scale_properties:
     scale_target_value: {{ flink_job_names['pipeline-preprocessor'].scale_target_value }}
     min_replica: {{ flink_job_names['pipeline-preprocessor'].min_replica | default(1) }}
     max_replica: {{ flink_job_names['pipeline-preprocessor'].max_replica | default(2) }}
+  telemetry-intake:
+    enabled: {{ flink_job_names['telemetry-intake'].scale_enabled | lower}}
+    scale_target_value: {{ flink_job_names['telemetry-intake'].scale_target_value }}
+    min_replica: {{ flink_job_names['telemetry-intake'].min_replica | default(1) }}
+    max_replica: {{ flink_job_names['telemetry-intake'].max_replica | default(2) }}
   cb-preprocessor:
     enabled: {{ flink_job_names['cb-preprocessor'].scale_enabled | lower}}
     scale_target_value: {{ flink_job_names['cb-preprocessor'].scale_target_value }}
@@ -164,8 +169,8 @@ base_config: |
       }
     }
     task {
-      parallelism = 1
-      consumer.parallelism = 1
+      parallelism = {{ task_parallelism | default(1) }}
+      consumer.parallelism = {{ consumer_parallelism | default(1) }}
       checkpointing.compressed = {{ checkpoint_compression_enabled|lower }}
       checkpointing.interval = {{ checkpoint_interval }}
       checkpointing.pause.between.seconds = {{ checkpoint_pause_between_seconds }}
@@ -228,7 +233,7 @@ ingest-router:
     jobmanager.memory.flink.size: {{ flink_job_names['ingest-router'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['ingest-router'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['ingest-router'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['ingest-router'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -279,7 +284,7 @@ telemetry-extractor:
     jobmanager.memory.flink.size: {{ flink_job_names['telemetry-extractor'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['telemetry-extractor'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['telemetry-extractor'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['telemetry-extractor'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -323,7 +328,7 @@ pipeline-preprocessor:
     jobmanager.memory.flink.size: {{ flink_job_names['pipeline-preprocessor'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['pipeline-preprocessor'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['pipeline-preprocessor'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['pipeline-preprocessor'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -331,6 +336,86 @@ pipeline-preprocessor:
     heartbeat.interval: 5000
     taskmanager.memory.process.size: {{ flink_job_names['pipeline-preprocessor'].taskmanager_process_memory }}
     jobmanager.memory.process.size: {{ flink_job_names['pipeline-preprocessor'].jobmanager_process_memory }}
+
+telemetry-intake:
+  telemetry-intake: |+
+    include file("/data/flink/conf/base-config.conf")
+    extractor {
+      kafka {
+        input.topic = {{ env_name }}.telemetry.ingest
+        output.success.topic = {{ env_name }}.telemetry.raw
+        output.log.route.topic = {{ env_name }}.druid.events.log
+        output.duplicate.topic = {{ env_name }}.telemetry.extractor.duplicate
+        output.failed.topic = {{ env_name }}.telemetry.failed
+        output.batch.failed.topic = {{ env_name }}.telemetry.extractor.failed
+        output.assess.raw.topic = {{ env_name }}.telemetry.assess.raw
+        event.max.size = "{{ extractor_event_max_size }}"
+        groupId = {{ env_name }}-telemetry-extractor-group
+        producer {
+          max-request-size = {{ extractor_max_request_size }}
+        }
+      }
+      task {
+        consumer.parallelism = {{ extractor_consumer_parallelism }}
+        downstream.operators.parallelism = {{ extractor_operators_parallelism }}
+      }
+      redis {
+        database {
+          duplicationstore.id = 1
+          key.expiry.seconds = {{ telemetry_extractor_key_expiry_seconds }}
+        }
+      }
+      redis-meta {
+        database {
+          contentstore.id = 5
+        }
+        host = {{ redis_meta_content_host }}
+        port = {{ redis_meta_content_port }}
+      }
+      redact.events.list = ["ASSESS","RESPONSE"]
+    }
+    preprocessor {
+      kafka {
+        input.topic = {{ env_name }}.telemetry.raw
+        output.failed.topic = {{ env_name }}.telemetry.failed
+        output.primary.route.topic = {{ env_name }}.telemetry.unique
+        output.log.route.topic = {{ env_name }}.druid.events.log
+        output.error.route.topic = {{ env_name }}.telemetry.error
+        output.audit.route.topic = {{ env_name }}.telemetry.audit
+        output.duplicate.topic = {{ env_name }}.telemetry.duplicate
+        output.denorm.secondary.route.topic = {{ env_name }}.telemetry.unique.secondary
+        output.denorm.primary.route.topic = {{ env_name }}.telemetry.unique.primary
+        output.cb.audit.route.topic = {{ env_name }}.telemetry.cb.audit
+        groupId = {{ env_name }}-pipeline-preprocessor-group
+      }
+      task {
+        consumer.parallelism = {{ pipeline_preprocessor_consumer_parallelism }}
+        downstream.operators.parallelism = {{ pipeline_preprocessor_operators_parallelism }}
+      }
+      telemetry.schema.path="schemas/telemetry/3.0"
+      default.channel="{{ telemetry_default_org_id }}"
+      dedup.producer.included.ids = ["{{ portal_id }}", "{{ desktop_id }}", "{{ frac_id }}", "{{ mdo_id }}"]
+      secondary.events = ["INTERACT", "IMPRESSION", "SHARE_ITEM"]
+      redis {
+        database {
+          duplicationstore.id = 7
+          key.expiry.seconds = {{ pipeline_preprocessor_key_expiry_seconds }}
+        }
+      }
+    }
+
+  flink-conf: |+
+    jobmanager.memory.flink.size: {{ flink_job_names['telemetry-intake'].jobmanager_memory }}
+    taskmanager.memory.flink.size: {{ flink_job_names['telemetry-intake'].taskmanager_memory }}
+    taskmanager.numberOfTaskSlots: {{ flink_job_names['telemetry-intake'].taskslots }}
+    parallelism.default: {{ flink_job_names['telemetry-intake'].parallelism | default(1) }}
+    jobmanager.execution.failover-strategy: region
+    taskmanager.memory.network.fraction: 0.1
+    scheduler-mode: reactive
+    heartbeat.timeout: 8000
+    heartbeat.interval: 5000
+    taskmanager.memory.process.size: {{ flink_job_names['telemetry-intake'].taskmanager_process_memory }}
+    jobmanager.memory.process.size: {{ flink_job_names['telemetry-intake'].jobmanager_process_memory }}
 
 cb-preprocessor:
   cb-preprocessor: |+
@@ -367,7 +452,7 @@ cb-preprocessor:
     jobmanager.memory.flink.size: {{ flink_job_names['cb-preprocessor'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['cb-preprocessor'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['cb-preprocessor'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['cb-preprocessor'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -429,7 +514,7 @@ de-normalization-secondary:
     jobmanager.memory.flink.size: {{ flink_job_names['de-normalization-secondary'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['de-normalization-secondary'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['de-normalization-secondary'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['de-normalization-secondary'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -491,7 +576,7 @@ de-normalization-primary:
     jobmanager.memory.flink.size: {{ flink_job_names['de-normalization-primary'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['de-normalization-primary'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['de-normalization-primary'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['de-normalization-primary'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -553,7 +638,7 @@ summary-denormalization:
     jobmanager.memory.flink.size: {{ flink_job_names['summary-denormalization'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['summary-denormalization'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['summary-denormalization'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['summary-denormalization'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -620,7 +705,7 @@ rating:
     jobmanager.memory.flink.size: {{ flink_job_names['rating'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['rating'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['rating'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['rating'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -668,7 +753,7 @@ druid-validator:
     jobmanager.memory.flink.size: {{ flink_job_names['druid-validator'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['druid-validator'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['druid-validator'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['druid-validator'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
     scheduler-mode: reactive
@@ -709,7 +794,7 @@ device-profile-updater:
     jobmanager.memory.flink.size: {{ flink_job_names['device-profile-updater'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['device-profile-updater'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['device-profile-updater'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['device-profile-updater'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
 
@@ -745,7 +830,7 @@ content-cache-updater:
     jobmanager.memory.flink.size: {{ flink_job_names['content-cache-updater'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['content-cache-updater'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['content-cache-updater'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['content-cache-updater'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
 
@@ -785,7 +870,7 @@ user-cache-updater-v2:
     jobmanager.memory.flink.size: {{ flink_job_names['user-cache-updater-v2'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['user-cache-updater-v2'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['user-cache-updater-v2'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['user-cache-updater-v2'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
 
@@ -830,7 +915,7 @@ assessment-aggregator:
     jobmanager.memory.flink.size: {{ flink_job_names['assessment-aggregator'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['assessment-aggregator'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['assessment-aggregator'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['assessment-aggregator'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
 
@@ -887,7 +972,7 @@ error-denormalization:
     jobmanager.memory.flink.size: {{ flink_job_names['error-denormalization'].jobmanager_memory }}
     taskmanager.memory.flink.size: {{ flink_job_names['error-denormalization'].taskmanager_memory }}
     taskmanager.numberOfTaskSlots: {{ flink_job_names['error-denormalization'].taskslots }}
-    parallelism.default: 1
+    parallelism.default: {{ flink_job_names['error-denormalization'].parallelism | default(1) }}
     jobmanager.execution.failover-strategy: region
     taskmanager.memory.network.fraction: 0.1
 

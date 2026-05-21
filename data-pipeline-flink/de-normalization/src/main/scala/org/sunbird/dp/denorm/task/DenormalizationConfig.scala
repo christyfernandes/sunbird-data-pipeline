@@ -60,6 +60,9 @@ class DenormalizationConfig(override val config: Config, jobName: String) extend
   val userSignInTypeDefault: String = if (config.hasPath("user.signin.type.default")) config.getString("user.signin.type.default") else "Anonymous"
   val userLoginInTypeDefault: String = if (config.hasPath("user.login.type.default")) config.getString("user.login.type.default") else "NA"
 
+  val kafkaTelemetryRouteTopic: String = config.getString("kafka.output.telemetry.route.topic")
+  val kafkaSummaryRouteTopic: String = config.getString("kafka.output.summary.route.topic")
+
   val DENORM_EVENTS_PRODUCER = "telemetry-denorm-events-producer"
 
   val WITH_LOCATION_EVENTS = "with_location_events"

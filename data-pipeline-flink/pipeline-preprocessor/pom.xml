@@ -36,6 +36,11 @@
             <version>1.0.0</version>
         </dependency>
         <dependency>
+            <groupId>org.sunbird.dp.jobs</groupId>
+            <artifactId>telemetry-extractor</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
             <groupId>com.github.java-json-tools</groupId>
             <artifactId>json-schema-validator</artifactId>
             <version>2.2.8</version>

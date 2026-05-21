@@ -1,5 +1,7 @@
 package org.sunbird.dp.core.cache
 
+import com.google.common.base.Charsets
+import com.google.common.hash.{BloomFilter, Funnels}
 import redis.clients.jedis.Jedis
 import redis.clients.jedis.exceptions.JedisException
 
@@ -10,8 +12,15 @@ class DedupEngine(redisConnect: RedisConnect, store: Int, expirySeconds: Int) ex
   private[this] var redisConnection: Jedis = redisConnect.getConnection
   redisConnection.select(store)
 
+  // Per-instance bloom filter: 10M entries, 0.01% false positive rate (~24MB).
+  // Definitely-unique events skip the Redis EXISTS call entirely.
+  // Cross-instance duplicates (different TM slots) still hit Redis — correct behavior.
+  @transient private lazy val bloomFilter: BloomFilter[CharSequence] =
+    BloomFilter.create(Funnels.stringFunnel(Charsets.UTF_8), 10000000, 0.0001)
+
   @throws[JedisException]
   def isUniqueEvent(checksum: String): Boolean = {
+    if (!bloomFilter.mightContain(checksum)) return true
     var unique = false
     try {
       unique = !redisConnection.exists(checksum)
@@ -27,6 +36,7 @@ class DedupEngine(redisConnect: RedisConnect, store: Int, expirySeconds: Int) ex
 
   @throws[JedisException]
   def storeChecksum(checksum: String): Unit = {
+    bloomFilter.put(checksum)
     try
       redisConnection.setex(checksum, expirySeconds, "")
     catch {

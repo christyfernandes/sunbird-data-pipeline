@@ -179,7 +179,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 2
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
@@ -194,12 +195,29 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 2
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
     scale_enabled: true
     scale_target_value: 1000000
+    min_replica: 1
+    max_replica: 4
+  telemetry-intake:
+    job_class_name: 'org.sunbird.dp.preprocessor.task.TelemetryIntakeStreamTask'
+    replica: 2
+    jobmanager_memory: 1024m
+    taskmanager_memory: 1536m
+    taskmanager_process_memory: 2200m
+    jobmanager_process_memory: 1600m
+    parallelism: 4
+    taskslots: 4
+    cpu_requests: 1
+    cpu_limits: 2
+    mem_requests: 2Gi
+    scale_enabled: true
+    scale_target_value: 500000
     min_replica: 1
     max_replica: 4
   cb-preprocessor:
@@ -209,7 +227,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 1
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
@@ -224,7 +243,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 1
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
@@ -239,7 +259,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 1
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 0.3
     mem_requests: 2Gi
     scale_enabled: false
@@ -250,7 +271,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 1
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 0.3
     mem_requests: 2Gi
     scale_enabled: false 
@@ -261,7 +283,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 2
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
@@ -276,7 +299,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 2
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
@@ -291,7 +315,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 2
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
@@ -306,7 +331,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 1
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi
@@ -318,7 +344,8 @@ flink_job_names:
     taskmanager_memory: 1024m
     taskmanager_process_memory: 1700m
     jobmanager_process_memory: 1600m
-    taskslots: 1
+    parallelism: 4
+    taskslots: 4
     cpu_requests: 1
     cpu_limits: 2
     mem_requests: 2Gi

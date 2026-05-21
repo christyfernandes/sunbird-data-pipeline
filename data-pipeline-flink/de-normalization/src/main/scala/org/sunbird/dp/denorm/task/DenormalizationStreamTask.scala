@@ -1,12 +1,13 @@
 package org.sunbird.dp.denorm.task
 
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 import com.typesafe.config.ConfigFactory
 import org.apache.flink.api.common.typeinfo.TypeInformation
-import org.apache.flink.api.java.functions.KeySelector
 import org.apache.flink.api.java.typeutils.TypeExtractor
 import org.apache.flink.api.java.utils.ParameterTool
+import org.apache.flink.streaming.api.datastream.{AsyncDataStream => JAsyncDataStream}
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
 import org.sunbird.dp.core.job.FlinkKafkaConnector
 import org.sunbird.dp.core.util.FlinkUtil
@@ -59,16 +60,34 @@ class DenormalizationStreamTask(config: DenormalizationConfig, kafkaConnector: F
     implicit val eventTypeInfo: TypeInformation[Event] = TypeExtractor.getForClass(classOf[Event])
 
     val source = kafkaConnector.kafkaEventSource[Event](config.telemetryInputTopic)
-    val denormStream =
+    val sourceStream =
       env.addSource(source, config.denormalizationConsumer).uid(config.denormalizationConsumer)
         .setParallelism(config.kafkaConsumerParallelism).rebalance()
-        .keyBy(new DenormKeySelector(config)).countWindow(config.windowCount)
-        .process(new DenormalizationWindowFunction(config)).name(config.denormalizationFunction).uid(config.denormalizationFunction)
-        .setParallelism(config.telemetryDownstreamOperatorsParallelism)
 
-    denormStream.getSideOutput(config.denormEventsTag).addSink(kafkaConnector.kafkaEventSink(config.telemetryDenormOutputTopic))
+    // Async I/O: up to 500 events in-flight simultaneously; operator thread never blocks on Redis.
+    // Replaces the synchronous keyBy+countWindow+pipeline.sync() chain.
+    val denormStream = JAsyncDataStream.unorderedWait(
+      sourceStream,
+      new DenormalizationAsyncFunction(config),
+      30L, TimeUnit.SECONDS, 500
+    ).name(config.denormalizationFunction).uid(config.denormalizationFunction)
+      .setParallelism(config.telemetryDownstreamOperatorsParallelism)
+
+    // Shadow write: keeps SECOR and LPA backup consumers reading telemetry.denorm intact
+    denormStream.addSink(kafkaConnector.kafkaEventSink(config.telemetryDenormOutputTopic))
       .name(config.DENORM_EVENTS_PRODUCER).uid(config.DENORM_EVENTS_PRODUCER)
         .setParallelism(config.telemetryDownstreamOperatorsParallelism)
+
+    // Direct Druid routing: eliminates the druid-events-validator hop
+    denormStream.filter((e: Event) => "ME_WORKFLOW_SUMMARY" == e.eid())
+      .addSink(kafkaConnector.kafkaEventSink(config.kafkaSummaryRouteTopic))
+      .name("denorm-summary-druid-sink").uid("denorm-summary-druid-sink")
+      .setParallelism(config.telemetryDownstreamOperatorsParallelism)
+
+    denormStream.filter((e: Event) => "ME_WORKFLOW_SUMMARY" != e.eid())
+      .addSink(kafkaConnector.kafkaEventSink(config.kafkaTelemetryRouteTopic))
+      .name("denorm-telemetry-druid-sink").uid("denorm-telemetry-druid-sink")
+      .setParallelism(config.telemetryDownstreamOperatorsParallelism)
 
     env.execute(config.jobName)
   }
@@ -90,10 +109,3 @@ object DenormalizationStreamTask {
   }
 }
 // $COVERAGE-ON$
-
-class DenormKeySelector(config: DenormalizationConfig) extends KeySelector[Event, Int] {
-  val shards = config.windowShards
-  override def getKey(in: Event): Int = {
-    if (Option(in.did()) == None) "".hashCode % shards else in.did().hashCode % shards
-  }
-}
